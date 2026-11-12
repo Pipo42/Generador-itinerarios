@@ -76,22 +76,28 @@
   .fancy-button:disabled { cursor:progress; }
   .fancy-button:disabled .button_top { transform:translateY(0); }
 
-  /* Panel del viaje: se despliega bajo el botón mientras el bus recorre A -> B */
-  #viaje { display:grid; grid-template-rows:0fr; opacity:0; transform:translateY(12px); visibility:hidden;
-       transition:grid-template-rows .55s ease, opacity .45s ease, transform .55s ease, visibility 0s linear .55s; }
-  #viaje.visible { grid-template-rows:1fr; opacity:1; transform:none; visibility:visible; transition-delay:0s; }
-  #viaje > .int { overflow:hidden; min-height:0; padding:22px 4px 0; margin:0 -4px; }
-  .mapa-caja { border:2px solid #000; border-radius:20px; box-shadow:0 10px 0 #000; overflow:hidden; background:var(--base); }
-  #mapa { display:block; width:100%; height:190px; }
-  #estado { text-align:center; font-weight:600; padding:10px 14px; border-top:2px solid #000; min-height:2.6em; }
+  /* Al generar: el contenido y el fondo se desvanecen y solo queda la animación; al acabar, todo vuelve */
+  #fondo { transition:opacity .45s ease; }
+  #contenido { transition:opacity .5s ease .1s, visibility 0s; }
+  body.animando { overflow:hidden; }
+  body.animando #contenido { opacity:0; visibility:hidden; pointer-events:none; transition:opacity .45s ease, visibility 0s linear .45s; }
+  body.animando #fondo { opacity:0; }
+  #escena { position:fixed; inset:0; z-index:3; display:flex; align-items:center; justify-content:center; padding:24px;
+       opacity:0; visibility:hidden; pointer-events:none; transition:opacity .5s ease, visibility 0s linear .5s; }
+  body.animando #escena { opacity:1; visibility:visible; transition:opacity .5s ease .35s, visibility 0s linear .35s; }
+  body.animando #escena.bloqueada { pointer-events:auto; }
+  .mapa-caja { width:min(760px,100%); border:2px solid #000; border-radius:20px; box-shadow:0 10px 0 #000; overflow:hidden; background:var(--base); }
+  #mapa { display:block; width:100%; height:min(320px,45vh); }
+  #estado { text-align:center; font-weight:600; font-size:1.05rem; padding:12px 14px; border-top:2px solid #000; min-height:3em; }
   #estado a { color:inherit; }
-  @media (prefers-reduced-motion: reduce) { #viaje { transition:none; } }
+  #estado .volver { margin-left:12px; font:inherit; font-weight:600; padding:.25em .9em; border:2px solid #000; border-radius:999px; background:var(--base); cursor:pointer; }
+  @media (prefers-reduced-motion: reduce) { #contenido, #fondo, #escena, body.animando #contenido, body.animando #escena { transition:none; } }
   @media (pointer: coarse) { .fancy-button:hover .button_top { transform:translateY(-.35em); } .fancy-button:active .button_top { transform:translateY(0); } }
 </style>
 </head>
 <body>
 <canvas id="fondo" aria-hidden="true"></canvas>
-<main>
+<main><div id="contenido">
   <h1><img src="favicon.png" alt="">Generador de itinerario por ruta</h1>
 
   <label class="t" for="q">Ruta</label>
@@ -107,9 +113,9 @@
   </div>
   <div class="caja-scroll"><ol id="paradas"></ol></div>
   <button id="generar" class="fancy-button" type="button"><span class="button_top">Generar itinerario</span></button>
-  <div id="viaje" aria-live="polite"><div class="int"><div class="mapa-caja"><canvas id="mapa"></canvas><div id="estado"></div></div></div></div>
   </div></div>
-</main>
+</div></main>
+<div id="escena" aria-live="polite" aria-hidden="true"><div class="mapa-caja"><canvas id="mapa"></canvas><div id="estado"></div></div></div>
 
 <script src="animaciones.js"></script>
 <script>
@@ -189,31 +195,44 @@ function urlsMaps(paradas) {
 }
 let ocupado = false;
 const reducirMovimiento = matchMedia('(prefers-reduced-motion: reduce)').matches;
-function abrirMaps(urls) {
+const esperar = ms => new Promise(r => setTimeout(r, ms));
+function abrirMaps(urls) {                       // devuelve true si el navegador ha bloqueado alguna ventana
   const ventanas = urls.map(u => { const w = window.open(u, '_blank'); if (w) w.opener = null; return w; });
-  if (ventanas.some(w => !w)) {
-    $('estado').innerHTML = 'El navegador bloqueó la ventana. ' +
-      urls.map((u, i) => `<a href="${u}" target="_blank" rel="noopener">Abrir Google Maps${urls.length > 1 ? ' (' + (i + 1) + ')' : ''}</a>`).join(' · ');
-    $('viaje').classList.add('visible');
-  }
+  if (!ventanas.some(w => !w)) return false;
+  $('estado').innerHTML = 'El navegador bloqueó la ventana. ' +
+    urls.map((u, i) => `<a href="${u}" target="_blank" rel="noopener">Abrir Google Maps${urls.length > 1 ? ' (' + (i + 1) + ')' : ''}</a>`).join(' · ') +
+    ' <button type="button" class="volver" id="volver">Volver</button>';
+  $('escena').classList.add('bloqueada');
+  return true;
 }
-function generar() {
+function volver() {                              // todo vuelve con fade in
+  $('escena').classList.remove('bloqueada');
+  document.body.classList.remove('animando');
+  $('escena').setAttribute('aria-hidden', 'true');
+  setTimeout(() => { ocupado = false; }, 700);
+}
+async function generar() {
   mostrar();
   if (!elegida) return alert(coincidencias().length ? 'Hay varias rutas que coinciden. Elige una de la lista.' : 'Elige una ruta válida.');
   if (ocupado) return;
   const paradas = paradasDe(elegida), urls = urlsMaps(paradas);
   if (reducirMovimiento || paradas.length < 2) { abrirMaps(urls); return; }
-  ocupado = true; $('generar').disabled = true;
+  ocupado = true;
+  opciones.hidden = true; if (document.activeElement) document.activeElement.blur();
   $('estado').textContent = 'Calculando itinerario…';
-  $('viaje').classList.add('visible');
+  $('escena').setAttribute('aria-hidden', 'false');
+  document.body.classList.add('animando');       // el contenido y el fondo se desvanecen; aparece la escena
+  await esperar(850);
   AnimacionesBus.viaje($('mapa'), paradas, {
     alLlegar: () => { $('estado').textContent = urls.length > 1 ? '¡Llegamos! Abriendo Google Maps (varias pestañas)…' : '¡Llegamos! Abriendo Google Maps…'; },
-    alTerminar: () => {
-      abrirMaps(urls);
-      setTimeout(() => { $('viaje').classList.remove('visible'); ocupado = false; $('generar').disabled = false; }, 900);
+    alTerminar: async () => {
+      if (abrirMaps(urls)) return;               // si hubo bloqueo, el usuario decide cuándo volver
+      await esperar(900);
+      volver();
     }
   });
 }
+document.addEventListener('click', e => { if (e.target.id === 'volver') volver(); });
 
 AnimacionesBus.fondo($('fondo'));
 q.addEventListener('input', () => { pintarOpciones(); mostrar(); });

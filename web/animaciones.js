@@ -125,27 +125,28 @@
   const VIAJE_MS = 1300, LLEGADA_MS = 325;
   function viaje(cv, paradas, cb) {
     cb = cb || {};
-    const ctx = cv.getContext('2d'), { W, H } = ajustarLienzo(cv), pad = 46;
+    const ctx = cv.getContext('2d'), { W, H } = ajustarLienzo(cv), pad = 56, K = Math.max(1, Math.min(1.7, W / 460));   // K: escala de los dibujos según el tamaño del lienzo
     const sube = paradas[paradas.length - 1].lat >= paradas[0].lat;                  // B al norte de A -> B más arriba
     const A = [pad, H * (sube ? .66 : .34)], B = [W - pad, H * (sube ? .34 : .66)];
     const c1 = [W * .38, A[1]], c2 = [W * .62, B[1]], pts = [];
     for (let i = 0; i <= 140; i++) { const u = i / 140, v = 1 - u; pts.push([0, 1].map(d => v * v * v * A[d] + 3 * v * v * u * c1[d] + 3 * v * u * u * c2[d] + u * u * u * B[d])); }
     const R = muestrear(pts);
+    const bus2 = (x, y, ang, t) => { ctx.save(); ctx.translate(x, y); ctx.scale(K, K); bus(ctx, 0, 0, ang, t); ctx.restore(); };
     function cuadro(prog, t, llegada) {
       ctx.clearRect(0, 0, W, H);
       ctx.strokeStyle = 'rgba(25,25,25,.07)'; ctx.lineWidth = 1; ctx.setLineDash([]);
       for (let x = 20; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
       for (let y = 20; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
       const s = prog * R.total, pos = enDistancia(R, s);
-      if (llegada < 0) equis(ctx, B[0], B[1], 1, .28);                                // destino "fantasma"
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.setLineDash([9, 9]);
+      if (llegada < 0) equis(ctx, B[0], B[1], K, .28);                                // destino "fantasma"
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3 * K; ctx.setLineDash([9 * K, 9 * K]);
       trazoTramo(ctx, R, 0, s); ctx.setLineDash([]);
-      marca(ctx, A[0], A[1], 1, 'A');
-      if (llegada < 0) bus(ctx, pos.x, pos.y, pos.ang, t);
+      marca(ctx, A[0], A[1], K, 'A');
+      if (llegada < 0) bus2(pos.x, pos.y, pos.ang, t);
       else {                                                                           // llegada: la X salta
         const q = clamp01(llegada / .22);
-        bus(ctx, B[0] - Math.cos(pos.ang) * 16 * q, B[1] - Math.sin(pos.ang) * 16 * q, pos.ang, 0);
-        equis(ctx, B[0], B[1], 1 + Math.sin(q * Math.PI) * .55 * (1 - q * .4), 1);
+        bus2(B[0] - Math.cos(pos.ang) * 16 * K * q, B[1] - Math.sin(pos.ang) * 16 * K * q, pos.ang, 0);
+        equis(ctx, B[0], B[1], K * (1 + Math.sin(q * Math.PI) * .55 * (1 - q * .4)), 1);
       }
     }
     const t0 = performance.now(); let avisado = false;
