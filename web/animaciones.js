@@ -1,6 +1,6 @@
 /* Animaciones de la web (canvas 2D, sin dependencias):
    - AnimacionesBus.fondo(canvas): líneas discontinuas que se dibujan muy despacio entre un punto A y un punto B, como trazadas en un mapa.
-   - AnimacionesBus.viaje(canvas, paradas, {alLlegar, alTerminar}): el bus recorre A -> B antes de abrir Google Maps. */
+   - AnimacionesBus.viaje(canvas, paradas, {alLlegar, alTerminar}): prepara la escena (reiniciada) y devuelve {empezar()}: el bus recorre A -> B antes de abrir Google Maps. */
 (function () {
   'use strict';
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -149,15 +149,20 @@
         equis(ctx, B[0], B[1], K * (1 + Math.sin(q * Math.PI) * .55 * (1 - q * .4)), 1);
       }
     }
-    const t0 = performance.now(); let avisado = false;
-    (function frame(ahora) {
-      const ms = ahora - t0;
-      if (ms < VIAJE_MS) { cuadro(suave(ms / VIAJE_MS), ms / 1000, -1); requestAnimationFrame(frame); return; }
-      const ll = (ms - VIAJE_MS) / 1000; cuadro(1, 0, Math.min(ll, 5));
-      if (!avisado && ll > .03) { avisado = true; if (cb.alLlegar) cb.alLlegar(); }
-      if (ms < VIAJE_MS + LLEGADA_MS) { requestAnimationFrame(frame); return; }
-      if (cb.alTerminar) cb.alTerminar();
-    })(t0);
+    cuadro(0, 0, -1);                                                  // el lienzo se reinicia por completo y queda en el estado inicial (A, destino y cuadrícula)
+    return {                                                           // la animación arranca cuando se llama a empezar()
+      empezar() {
+        const t0 = performance.now(); let avisado = false;
+        (function frame(ahora) {
+          const ms = ahora - t0;
+          if (ms < VIAJE_MS) { cuadro(suave(ms / VIAJE_MS), ms / 1000, -1); requestAnimationFrame(frame); return; }
+          const ll = (ms - VIAJE_MS) / 1000; cuadro(1, 0, Math.min(ll, 5));
+          if (!avisado && ll > .03) { avisado = true; if (cb.alLlegar) cb.alLlegar(); }
+          if (ms < VIAJE_MS + LLEGADA_MS) { requestAnimationFrame(frame); return; }
+          if (cb.alTerminar) cb.alTerminar();
+        })(t0);
+      }
+    };
   }
 
   window.AnimacionesBus = { fondo, viaje };

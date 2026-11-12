@@ -220,17 +220,19 @@ async function generar() {
   ocupado = true;
   opciones.hidden = true; if (document.activeElement) document.activeElement.blur();
   $('estado').textContent = 'Calculando itinerario…';
-  $('escena').setAttribute('aria-hidden', 'false');
-  document.body.classList.add('animando');       // el contenido y el fondo se desvanecen; aparece la escena
-  await esperar(850);
-  AnimacionesBus.viaje($('mapa'), paradas, {
+  $('escena').classList.remove('bloqueada');
+  const viaje = AnimacionesBus.viaje($('mapa'), paradas, {
     alLlegar: () => { $('estado').textContent = urls.length > 1 ? '¡Llegamos! Abriendo Google Maps (varias pestañas)…' : '¡Llegamos! Abriendo Google Maps…'; },
     alTerminar: async () => {
       if (abrirMaps(urls)) return;               // si hubo bloqueo, el usuario decide cuándo volver
       await esperar(900);
       volver();
     }
-  });
+  });                                             // el lienzo ya está reiniciado en su estado inicial, aún sin verse
+  $('escena').setAttribute('aria-hidden', 'false');
+  document.body.classList.add('animando');       // el contenido y el fondo se desvanecen; aparece la escena
+  await esperar(850);
+  viaje.empezar();
 }
 document.addEventListener('click', e => { if (e.target.id === 'volver') volver(); });
 
