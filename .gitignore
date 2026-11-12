@@ -1,0 +1,7 @@
+build_tmp/
+site/
+*.exe
+~$*
+__pycache__/
+*.xlsx
+*.xls
