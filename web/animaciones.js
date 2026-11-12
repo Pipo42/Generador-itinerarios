@@ -71,19 +71,20 @@
   const DURACION = TRAZO.dibuja + TRAZO.pausa + TRAZO.desvanece;
   const MAX_SIMULTANEOS = 2, ESPERA = [4, 8];                        // pocas líneas y muy espaciadas
   function dentro(p, r) { return p[0] > r.left && p[0] < r.right && p[1] > r.top && p[1] < r.bottom; }
-  function puntosAleatorios(W, H, columna, contenido) {   // A y B aleatorios; primero fuera de toda la columna, luego fuera del contenido actual
+  function puntosAleatorios(W, H, columna) {       // A y B aleatorios fuera de la columna de contenido
     const m = Math.min(50, W * .08), k = Math.min(1, Math.min(W, H) / 700);
     for (let n = 0; n < 80; n++) {
       const a = [rand(m, W - m), rand(m, H - m)], ang = rand(0, 7), d = rand(260, 520) * k, b = [a[0] + Math.cos(ang) * d, a[1] + Math.sin(ang) * d];
       if (b[0] < m || b[0] > W - m || b[1] < m || b[1] > H - m) continue;
-      const zona = n < 40 ? columna : n < 65 ? contenido : null;                // 3 niveles: estricto -> contenido -> sin restricción
-      if (zona) {
-        const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        if (dentro(a, zona) || dentro(b, zona) || dentro(mid, zona)) continue;
-      }
+      if (columna && (dentro(a, columna) || dentro(b, columna))) continue;
       return [a, b];
     }
     return null;
+  }
+  function libre(R, columna) {                    // toda la curva (no solo los extremos) debe quedar fuera del contenido
+    if (!columna) return true;
+    for (let i = 0; i < R.pts.length; i += 2) if (dentro(R.pts[i], columna)) return false;
+    return true;
   }
   function dibujarTrazo(ctx, v, tl) {
     const R = v.R, s = suave(tl / TRAZO.dibuja) * R.total, apaga = clamp01((tl - TRAZO.dibuja - TRAZO.pausa) / TRAZO.desvanece);
@@ -98,20 +99,22 @@
     if (!cv || quieto()) return;
     const ctx = cv.getContext('2d'); let W = 0, H = 0, activos = [], proximo = 0;
     const medir = () => { ({ W, H } = ajustarLienzo(cv)); };
-    addEventListener('resize', medir); medir();
+    addEventListener('resize', () => { medir(); activos = []; }); medir();      // al redimensionar se reinician las líneas en curso
     const main = document.querySelector('main');
     (function frame(ms) {
       const t = ms / 1000;
       if (proximo === 0) proximo = t + 1.2;                                          // la primera línea empieza enseguida, sin prisa
       if (t >= proximo && activos.length < MAX_SIMULTANEOS && !document.hidden) {
-        let columna = null, contenido = null;
+        let columna = null;
         if (main) {
-          const r = main.getBoundingClientRect();
-          contenido = { left: r.left - 24, right: r.right + 24, top: r.top - 24, bottom: r.bottom + 24 };
-          columna = { left: contenido.left, right: contenido.right, top: -1e9, bottom: 1e9 };   // el contenido puede crecer: se reserva toda la columna
+          const r = main.getBoundingClientRect();                                            // el contenido puede crecer: se reserva toda la columna, de arriba a abajo
+          columna = { left: r.left - 24, right: r.right + 24, top: -1e9, bottom: 1e9 };
         }
-        const p = puntosAleatorios(W, H, columna, contenido);
-        if (p) activos.push({ a: p[0], b: p[1], R: curva(p[0], p[1], (Math.random() < .5 ? -1 : 1) * rand(.1, .25)), t0: t });
+        for (let intento = 0; intento < 12; intento++) {                                       // sin hueco libre (pantallas estrechas) no se dibuja nada
+          const p = puntosAleatorios(W, H, columna); if (!p) break;
+          const R = curva(p[0], p[1], (Math.random() < .5 ? -1 : 1) * rand(.1, .25));
+          if (libre(R, columna)) { activos.push({ a: p[0], b: p[1], R, t0: t }); break; }
+        }
         proximo = t + rand(...ESPERA);
       }
       activos = activos.filter(v => t - v.t0 < DURACION);
