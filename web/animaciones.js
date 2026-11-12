@@ -1,5 +1,5 @@
 /* Animaciones de la web (canvas 2D, sin dependencias):
-   - AnimacionesBus.fondo(canvas): líneas discontinuas que se dibujan muy despacio sobre el fondo, como trazadas en un mapa.
+   - AnimacionesBus.fondo(canvas): líneas discontinuas que se dibujan muy despacio entre un punto A y un punto B, como trazadas en un mapa.
    - AnimacionesBus.viaje(canvas, paradas, {alLlegar, alTerminar}): el bus recorre A -> B antes de abrir Google Maps. */
 (function () {
   'use strict';
@@ -71,14 +71,15 @@
   const DURACION = TRAZO.dibuja + TRAZO.pausa + TRAZO.desvanece;
   const MAX_SIMULTANEOS = 2, ESPERA = [4, 8];                        // pocas líneas y muy espaciadas
   function dentro(p, r) { return p[0] > r.left && p[0] < r.right && p[1] > r.top && p[1] < r.bottom; }
-  function puntosAleatorios(W, H, evitar) {       // A y B aleatorios, sin tapar el contenido si hay hueco
+  function puntosAleatorios(W, H, columna, contenido) {   // A y B aleatorios; primero fuera de toda la columna, luego fuera del contenido actual
     const m = Math.min(50, W * .08), k = Math.min(1, Math.min(W, H) / 700);
     for (let n = 0; n < 80; n++) {
       const a = [rand(m, W - m), rand(m, H - m)], ang = rand(0, 7), d = rand(260, 520) * k, b = [a[0] + Math.cos(ang) * d, a[1] + Math.sin(ang) * d];
       if (b[0] < m || b[0] > W - m || b[1] < m || b[1] > H - m) continue;
-      if (evitar && n < 50) {
+      const zona = n < 40 ? columna : n < 65 ? contenido : null;                // 3 niveles: estricto -> contenido -> sin restricción
+      if (zona) {
         const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        if (dentro(a, evitar) || dentro(b, evitar) || dentro(mid, evitar)) continue;
+        if (dentro(a, zona) || dentro(b, zona) || dentro(mid, zona)) continue;
       }
       return [a, b];
     }
@@ -89,6 +90,9 @@
     ctx.globalAlpha = .5 * (1 - suave(apaga));
     ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#191919'; ctx.lineWidth = 2; ctx.setLineDash([8, 9]);
     trazoTramo(ctx, R, 0, s); ctx.setLineDash([]);
+    const ap = suave(tl / 1.2), bp = suave((tl - TRAZO.dibuja) / .9);                // A al empezar, B al llegar
+    marca(ctx, v.a[0], v.a[1], ap, 'A');
+    marca(ctx, v.b[0], v.b[1], bp, 'B');
   }
   function fondo(cv) {
     if (!cv || quieto()) return;
@@ -100,10 +104,14 @@
       const t = ms / 1000;
       if (proximo === 0) proximo = t + 1.2;                                          // la primera línea empieza enseguida, sin prisa
       if (t >= proximo && activos.length < MAX_SIMULTANEOS && !document.hidden) {
-        let evitar = null;
-        if (main) { const r = main.getBoundingClientRect(); evitar = { left: r.left - 24, right: r.right + 24, top: r.top - 24, bottom: r.bottom + 24 }; }
-        const p = puntosAleatorios(W, H, evitar);
-        if (p) activos.push({ R: curva(p[0], p[1], (Math.random() < .5 ? -1 : 1) * rand(.1, .25)), t0: t });
+        let columna = null, contenido = null;
+        if (main) {
+          const r = main.getBoundingClientRect();
+          contenido = { left: r.left - 24, right: r.right + 24, top: r.top - 24, bottom: r.bottom + 24 };
+          columna = { left: contenido.left, right: contenido.right, top: -1e9, bottom: 1e9 };   // el contenido puede crecer: se reserva toda la columna
+        }
+        const p = puntosAleatorios(W, H, columna, contenido);
+        if (p) activos.push({ a: p[0], b: p[1], R: curva(p[0], p[1], (Math.random() < .5 ? -1 : 1) * rand(.1, .25)), t0: t });
         proximo = t + rand(...ESPERA);
       }
       activos = activos.filter(v => t - v.t0 < DURACION);
