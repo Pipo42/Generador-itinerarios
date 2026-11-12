@@ -1,12 +1,11 @@
 /* Animaciones de la web (canvas 2D, sin dependencias):
-   - AnimacionesBus.fondo(canvas): viajes de bus A -> B que aparecen de golpe en sitios aleatorios del fondo crema.
+   - AnimacionesBus.fondo(canvas): líneas discontinuas que se dibujan muy despacio sobre el fondo, como trazadas en un mapa.
    - AnimacionesBus.viaje(canvas, paradas, {alLlegar, alTerminar}): el bus recorre A -> B antes de abrir Google Maps. */
 (function () {
   'use strict';
   const rand = (a, b) => a + Math.random() * (b - a);
   const clamp01 = u => Math.min(1, Math.max(0, u));
   const suave = u => .5 - .5 * Math.cos(Math.PI * clamp01(u));
-  const rebote = u => { u = clamp01(u); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2); };
   const quieto = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ---------- geometría ---------- */
@@ -67,18 +66,15 @@
     return { W, H };
   }
 
-  /* ---------- fondo: viajes aleatorios que se abren de golpe ---------- */
-  const FASES = { apertura: .3, viaje: 1.3, llegada: .35, pausa: .45, cierre: .4 };
-  const DURACION = Object.values(FASES).reduce((a, b) => a + b, 0);
-  function fases(tl) {
-    const a = FASES.apertura, v = a + FASES.viaje, l = v + FASES.llegada, p = l + FASES.pausa;
-    return { ap: clamp01(tl / a), via: clamp01((tl - a) / FASES.viaje), ll: clamp01((tl - v) / FASES.llegada), ci: clamp01((tl - p) / FASES.cierre) };
-  }
+  /* ---------- fondo: líneas discontinuas que se dibujan despacio ---------- */
+  const TRAZO = { dibuja: 5.5, pausa: 2.5, desvanece: 3.5 };        // segundos
+  const DURACION = TRAZO.dibuja + TRAZO.pausa + TRAZO.desvanece;
+  const MAX_SIMULTANEOS = 2, ESPERA = [4, 8];                        // pocas líneas y muy espaciadas
   function dentro(p, r) { return p[0] > r.left && p[0] < r.right && p[1] > r.top && p[1] < r.bottom; }
   function puntosAleatorios(W, H, evitar) {       // A y B aleatorios, sin tapar el contenido si hay hueco
     const m = Math.min(50, W * .08), k = Math.min(1, Math.min(W, H) / 700);
     for (let n = 0; n < 80; n++) {
-      const a = [rand(m, W - m), rand(m, H - m)], ang = rand(0, 7), d = rand(240, 440) * k, b = [a[0] + Math.cos(ang) * d, a[1] + Math.sin(ang) * d];
+      const a = [rand(m, W - m), rand(m, H - m)], ang = rand(0, 7), d = rand(260, 520) * k, b = [a[0] + Math.cos(ang) * d, a[1] + Math.sin(ang) * d];
       if (b[0] < m || b[0] > W - m || b[1] < m || b[1] > H - m) continue;
       if (evitar && n < 50) {
         const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -88,34 +84,31 @@
     }
     return null;
   }
-  function dibujarViaje(ctx, v, tl, t) {
-    const f = fases(tl), R = v.R, s = suave(f.via) * R.total, borra = f.ci * R.total, esc = 1 - suave(f.ci);
-    marca(ctx, v.a[0], v.a[1], rebote(f.ap) * esc, 'A');
-    if (f.ll === 0) equis(ctx, v.b[0], v.b[1], rebote(f.ap) * esc, .25);
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(25,25,25,.85)'; ctx.lineWidth = 2.5; ctx.setLineDash([8, 8]);
-    trazoTramo(ctx, R, borra, s); ctx.setLineDash([]);                              // la línea se borra desde el origen al cerrar
-    if (f.ll > 0) equis(ctx, v.b[0], v.b[1], (1 + Math.sin(f.ll * Math.PI) * .5) * esc, 1);
-    const p = enDistancia(R, s); ctx.globalAlpha = 1 - f.ci;
-    if (f.ap > 0) bus(ctx, p.x, p.y, p.ang, t);
+  function dibujarTrazo(ctx, v, tl) {
+    const R = v.R, s = suave(tl / TRAZO.dibuja) * R.total, apaga = clamp01((tl - TRAZO.dibuja - TRAZO.pausa) / TRAZO.desvanece);
+    ctx.globalAlpha = .5 * (1 - suave(apaga));
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#191919'; ctx.lineWidth = 2; ctx.setLineDash([8, 9]);
+    trazoTramo(ctx, R, 0, s); ctx.setLineDash([]);
   }
   function fondo(cv) {
     if (!cv || quieto()) return;
-    const ctx = cv.getContext('2d'); let W = 0, H = 0, activos = [], proximo = .2;
+    const ctx = cv.getContext('2d'); let W = 0, H = 0, activos = [], proximo = 0;
     const medir = () => { ({ W, H } = ajustarLienzo(cv)); };
     addEventListener('resize', medir); medir();
     const main = document.querySelector('main');
     (function frame(ms) {
       const t = ms / 1000;
-      if (t >= proximo && activos.length < 3 && !document.hidden) {
+      if (proximo === 0) proximo = t + 1.2;                                          // la primera línea empieza enseguida, sin prisa
+      if (t >= proximo && activos.length < MAX_SIMULTANEOS && !document.hidden) {
         let evitar = null;
         if (main) { const r = main.getBoundingClientRect(); evitar = { left: r.left - 24, right: r.right + 24, top: r.top - 24, bottom: r.bottom + 24 }; }
         const p = puntosAleatorios(W, H, evitar);
-        if (p) activos.push({ a: p[0], b: p[1], R: curva(p[0], p[1], (Math.random() < .5 ? -1 : 1) * rand(.1, .22)), t0: t });
-        proximo = t + rand(.7, 1.4);
+        if (p) activos.push({ R: curva(p[0], p[1], (Math.random() < .5 ? -1 : 1) * rand(.1, .25)), t0: t });
+        proximo = t + rand(...ESPERA);
       }
       activos = activos.filter(v => t - v.t0 < DURACION);
       ctx.clearRect(0, 0, W, H);
-      for (const v of activos) { ctx.save(); dibujarViaje(ctx, v, t - v.t0, t); ctx.restore(); }
+      for (const v of activos) { ctx.save(); dibujarTrazo(ctx, v, t - v.t0); ctx.restore(); }
       requestAnimationFrame(frame);
     })(performance.now());
   }
