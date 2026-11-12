@@ -9,6 +9,7 @@ assert '/*__DATOS__*/[]' in html
 html = html.replace('/*__DATOS__*/[]', datos.replace('</', '<\\/'))
 (raiz / 'site' / 'index.html').write_text(html, encoding='utf-8')
 shutil.copy(raiz / 'web' / 'favicon.png', raiz / 'site' / 'favicon.png')
+shutil.copy(raiz / 'web' / 'animaciones.js', raiz / 'site' / 'animaciones.js')
 shutil.copytree(raiz / 'web' / 'fonts', raiz / 'site' / 'fonts', dirs_exist_ok=True)
 (raiz / 'site' / 'rutas.json').unlink()
 print('site/index.html generado')

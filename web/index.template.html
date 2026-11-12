@@ -19,7 +19,9 @@
   html { scroll-behavior:smooth; }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } }
   body { font-family:var(--font-body); font-size:16px; line-height:1.5; background:var(--base); color:var(--contrast); min-height:100vh; }
-  main { max-width:800px; margin:0 auto; padding:clamp(30px,5vw,50px) 1.5rem; animation:pageFadeIn .35s ease both; }
+  #fondo { position:fixed; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; }
+  @media (max-width:900px) { #fondo { opacity:.5; } }
+  main { position:relative; z-index:1; max-width:800px; margin:0 auto; padding:clamp(30px,5vw,50px) 1.5rem; animation:pageFadeIn .35s ease both; }
   h1 { font-family:var(--font-display); font-weight:400; font-size:clamp(1.5rem,4vw,2.2rem); text-align:center;
        display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:clamp(24px,5vw,40px); }
   h1 img { width:34px; height:34px; }
@@ -36,8 +38,10 @@
   }
   input[type=search]:focus { animation:input-jelly .18s cubic-bezier(.36,.07,.19,.97) both; }
   .hint { color:var(--accent-4); font-size:.85rem; margin:14px 0 0; }
+  /* Cajas con scroll: el marco redondeado recorta; el scroll va en un hijo, con holgura para que sus esquinas no se salgan */
   #opciones { background:var(--base); border:2px solid #000; border-radius:14px; box-shadow:0 5px 0 #000;
-       margin-top:14px; max-height:240px; overflow:auto; }
+       margin-top:14px; padding:8px 6px 8px 0; overflow:hidden; }
+  #opcionesLista { max-height:224px; overflow:auto; scrollbar-width:thin; scrollbar-color:#000 transparent; }
   #opciones button { display:block; width:100%; text-align:left; padding:.6em 1em; border:0; background:none; font:inherit; color:inherit; cursor:pointer; }
   #opciones button:hover, #opciones button:focus { background:var(--accent-2); outline:none; }
   #opciones .vacio { padding:.6em 1em; color:var(--accent-4); }
@@ -46,8 +50,9 @@
   .sentido label { cursor:pointer; }
   .sentido input { accent-color:#000; }
   .sentido input:disabled + span { color:#aaa; }
-  ol { background:transparent; border:2px solid #000; border-radius:20px; box-shadow:0 10px 0 #000;
-       margin:0 0 6px; padding:14px 16px 14px 44px; max-height:46vh; overflow:auto; }
+  .caja-scroll { background:var(--base); border:2px solid #000; border-radius:20px; box-shadow:0 10px 0 #000;
+       margin:0 0 6px; padding:12px 8px 12px 0; overflow:hidden; }
+  ol { margin:0; padding:2px 14px 2px 44px; max-height:46vh; overflow:auto; scrollbar-width:thin; scrollbar-color:#000 transparent; }
   ol li { padding:6px 0; border-bottom:1px solid #000; }
   ol li:last-child { border-bottom:none; }
   ol small { color:var(--accent-4); }
@@ -68,17 +73,31 @@
        font-weight:300; line-height:1.2; text-align:center; transform:translateY(-.35em); transition:transform .12s ease; }
   .fancy-button:hover .button_top { transform:translateY(-.5em); }
   .fancy-button:active .button_top { transform:translateY(0); }
+  .fancy-button:disabled { cursor:progress; }
+  .fancy-button:disabled .button_top { transform:translateY(0); }
+
+  /* Panel del viaje: se despliega bajo el botón mientras el bus recorre A -> B */
+  #viaje { display:grid; grid-template-rows:0fr; opacity:0; transform:translateY(12px); visibility:hidden;
+       transition:grid-template-rows .55s ease, opacity .45s ease, transform .55s ease, visibility 0s linear .55s; }
+  #viaje.visible { grid-template-rows:1fr; opacity:1; transform:none; visibility:visible; transition-delay:0s; }
+  #viaje > .int { overflow:hidden; min-height:0; padding:22px 4px 0; margin:0 -4px; }
+  .mapa-caja { border:2px solid #000; border-radius:20px; box-shadow:0 10px 0 #000; overflow:hidden; background:var(--base); }
+  #mapa { display:block; width:100%; height:190px; }
+  #estado { text-align:center; font-weight:600; padding:10px 14px; border-top:2px solid #000; min-height:2.6em; }
+  #estado a { color:inherit; }
+  @media (prefers-reduced-motion: reduce) { #viaje { transition:none; } }
   @media (pointer: coarse) { .fancy-button:hover .button_top { transform:translateY(-.35em); } .fancy-button:active .button_top { transform:translateY(0); } }
 </style>
 </head>
 <body>
+<canvas id="fondo" aria-hidden="true"></canvas>
 <main>
   <h1><img src="favicon.png" alt="">Generador de itinerario por ruta</h1>
 
   <label class="t" for="q">Ruta</label>
   <input id="q" type="search" placeholder="Elige una ruta… (p. ej. v782 o R230_MAÓ3)" autocomplete="off">
   <p class="hint" id="aviso">Escribe para filtrar o despliega la lista pulsando en la barra.</p>
-  <div id="opciones" hidden></div>
+  <div id="opciones" hidden><div id="opcionesLista"></div></div>
 
   <div id="detalle"><div class="interior">
   <div id="centros">Centro(s): —</div>
@@ -86,11 +105,13 @@
     <label><input type="radio" name="sentido" value="ida" checked><span> Ida</span></label>
     <label><input type="radio" name="sentido" value="vuelta"><span> Vuelta</span></label>
   </div>
-  <ol id="paradas"></ol>
+  <div class="caja-scroll"><ol id="paradas"></ol></div>
   <button id="generar" class="fancy-button" type="button"><span class="button_top">Generar itinerario</span></button>
+  <div id="viaje" aria-live="polite"><div class="int"><div class="mapa-caja"><canvas id="mapa"></canvas><div id="estado"></div></div></div></div>
   </div></div>
 </main>
 
+<script src="animaciones.js"></script>
 <script>
 const RUTAS = /*__DATOS__*/[];
 const MAX_URL = 2000; // Google limita las URL a 2.048 caracteres
@@ -98,7 +119,7 @@ const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 RUTAS.forEach(r => { r.etiqueta = `${r.vehiculo}  ·  ${r.ruta}`; r.clave = norm(r.etiqueta); });
 
 const $ = id => document.getElementById(id);
-const q = $('q'), opciones = $('opciones');
+const q = $('q'), opciones = $('opciones'), lista = $('opcionesLista');
 let elegida = null;
 const AVISO = $('aviso').textContent;
 
@@ -116,15 +137,15 @@ function coincidencias() {
   return exacta.length ? exacta : RUTAS.filter(r => r.clave.includes(t));
 }
 function pintarOpciones() {
-  const lista = filtrar();
-  opciones.innerHTML = '';
-  if (!lista.length) opciones.innerHTML = '<div class="vacio">Sin resultados</div>';
-  lista.slice(0, 200).forEach(r => {
+  const res = filtrar();
+  lista.innerHTML = '';
+  if (!res.length) lista.innerHTML = '<div class="vacio">Sin resultados</div>';
+  res.slice(0, 200).forEach(r => {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = r.etiqueta;
     b.onclick = () => { q.value = r.etiqueta; opciones.hidden = true; mostrar(); };
-    opciones.appendChild(b);
+    lista.appendChild(b);
   });
   opciones.hidden = false;
 }
@@ -166,14 +187,35 @@ function urlsMaps(paradas) {
   trozos.push(actual);
   return trozos.map(t => base + t.join('/') + '/');
 }
+let ocupado = false;
+const reducirMovimiento = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function abrirMaps(urls) {
+  const ventanas = urls.map(u => { const w = window.open(u, '_blank'); if (w) w.opener = null; return w; });
+  if (ventanas.some(w => !w)) {
+    $('estado').innerHTML = 'El navegador bloqueó la ventana. ' +
+      urls.map((u, i) => `<a href="${u}" target="_blank" rel="noopener">Abrir Google Maps${urls.length > 1 ? ' (' + (i + 1) + ')' : ''}</a>`).join(' · ');
+    $('viaje').classList.add('visible');
+  }
+}
 function generar() {
   mostrar();
   if (!elegida) return alert(coincidencias().length ? 'Hay varias rutas que coinciden. Elige una de la lista.' : 'Elige una ruta válida.');
-  const urls = urlsMaps(paradasDe(elegida));
-  urls.forEach(u => window.open(u, '_blank', 'noopener'));
-  if (urls.length > 1) alert(`La ruta es muy larga para un solo enlace: se abren ${urls.length} pestañas encadenadas. Si tu navegador bloquea alguna, permite las ventanas emergentes.`);
+  if (ocupado) return;
+  const paradas = paradasDe(elegida), urls = urlsMaps(paradas);
+  if (reducirMovimiento || paradas.length < 2) { abrirMaps(urls); return; }
+  ocupado = true; $('generar').disabled = true;
+  $('estado').textContent = 'Calculando itinerario…';
+  $('viaje').classList.add('visible');
+  AnimacionesBus.viaje($('mapa'), paradas, {
+    alLlegar: () => { $('estado').textContent = urls.length > 1 ? '¡Llegamos! Abriendo Google Maps (varias pestañas)…' : '¡Llegamos! Abriendo Google Maps…'; },
+    alTerminar: () => {
+      abrirMaps(urls);
+      setTimeout(() => { $('viaje').classList.remove('visible'); ocupado = false; $('generar').disabled = false; }, 900);
+    }
+  });
 }
 
+AnimacionesBus.fondo($('fondo'));
 q.addEventListener('input', () => { pintarOpciones(); mostrar(); });
 q.addEventListener('focus', pintarOpciones);
 q.addEventListener('keydown', e => { if (e.key === 'Enter') { opciones.hidden = true; generar(); } });
